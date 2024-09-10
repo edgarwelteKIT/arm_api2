@@ -86,6 +86,10 @@ m2Iface::m2Iface(const rclcpp::NodeOptions &options)
 
     // TODO: Change gripper based on the config file and the gripper types
     gripper = RobotiqGripper();
+
+    tfBufferPtr = std::make_unique<tf2_ros::Buffer>(this->get_clock());
+    transformListenerPtr =
+      std::make_shared<tf2_ros::TransformListener>(*tfBufferPtr);
 }
 
 YAML::Node m2Iface::init_config(std::string yaml_path)
@@ -254,11 +258,11 @@ rclcpp_action::GoalResponse m2Iface::move_to_pose_goal_cb(const rclcpp_action::G
         RCLCPP_ERROR_STREAM(this->get_logger(), "Robot is not in Cartesian control mode!");
         return rclcpp_action::GoalResponse::REJECT;
     }
-    if(goal->goal.header.frame_id != PLANNING_FRAME)
-    {
-        RCLCPP_ERROR_STREAM(this->get_logger(), "Pose frame_id is not planning frame! PLANNING_FRAME: " << PLANNING_FRAME);
-        return rclcpp_action::GoalResponse::REJECT;
-    }
+    //if(goal->goal.header.frame_id != PLANNING_FRAME)
+    //{
+    //    RCLCPP_ERROR_STREAM(this->get_logger(), "Pose frame_id is not planning frame! PLANNING_FRAME: " << PLANNING_FRAME);
+    //    return rclcpp_action::GoalResponse::REJECT;
+    //}
     (void)uuid;
     return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
 }
@@ -455,8 +459,22 @@ void m2Iface::planAndExecPose()
     RCLCPP_INFO_STREAM(this->get_logger(), "Planning Cartesian path!");
     RCLCPP_INFO_STREAM(this->get_logger(), "Current pose is: " << m_currPoseState.pose.position.x << " " << m_currPoseState.pose.position.y << " " << m_currPoseState.pose.position.z);
     RCLCPP_INFO_STREAM(this->get_logger(), "Target pose is: " << goalPose.pose.position.x << " " << goalPose.pose.position.y << " " << goalPose.pose.position.z);
-    RCLCPP_INFO_STREAM(this->get_logger(), "Creating Cartesian waypoints!");
-    RCLCPP_INFO_STREAM(this->get_logger(), "Number of waypoints: " << NUM_CART_PTS);
+    RCLCPP_INFO_STREAM(this->get_logger(), "Pose frame_id is: " << goalPose.header.frame_id);
+    RCLCPP_INFO_STREAM(this->get_logger(), "Using planner: " << (WITH_PLANNER ? "YES" : "NO"));
+
+    if(goalPose.header.frame_id != PLANNING_FRAME){
+        RCLCPP_INFO_STREAM(this->get_logger(), "Pose frame_id is not planning frame! PLANNING_FRAME: " << PLANNING_FRAME);
+        RCLCPP_INFO_STREAM(this->get_logger(), "tranforming pose to planning frame!");
+        geometry_msgs::msg::PoseStamped goalPose = transformPoseToFrame(goalPose, PLANNING_FRAME);
+        if(goalPose.header.frame_id != PLANNING_FRAME){
+            RCLCPP_ERROR_STREAM(this->get_logger(), "Failed to transform pose to planning frame!");
+            result->success = false;
+            m_moveToPoseGoalHandle_->abort(result);
+            return;
+        }
+    }
+    
+
      
     moveit_msgs::msg::RobotTrajectory trajectory;
 
@@ -619,6 +637,24 @@ void m2Iface::getArmState()
     m_currPoseState = utils::convertIsometryToMsg(currentPose_);
     auto frame_id = m_moveGroupPtr->getPlanningFrame().c_str();
     m_currPoseState.header.frame_id = frame_id;
+}
+
+geometry_msgs::msg::PoseStamped m2Iface::transformPoseToFrame(geometry_msgs::msg::PoseStamped pose, std::string frame_id)
+{
+    geometry_msgs::msg::TransformStamped transformStamped;
+    geometry_msgs::msg::PoseStamped transformedPose;
+    try{
+        transformStamped = tfBufferPtr->lookupTransform(frame_id, pose.header.frame_id, tf2::TimePointZero);
+        
+        tf2::doTransform(pose, transformedPose, transformStamped);
+        transformedPose.header.frame_id = frame_id;
+    }
+    catch (tf2::TransformException &ex){
+        RCLCPP_ERROR(this->get_logger(), "Transform error: %s", ex.what());
+    }
+
+    
+    return transformedPose;
 }
 
 bool m2Iface::run()

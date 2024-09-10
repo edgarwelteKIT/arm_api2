@@ -57,6 +57,10 @@
 #include "rclcpp_components/register_node_macro.hpp"
 #include "tf2/LinearMath/Quaternion.h"
 #include "tf2/LinearMath/Matrix3x3.h"
+#include "tf2_ros/transform_listener.h"
+#include "tf2_ros/buffer.h"
+#include "tf2/exceptions.h"
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 
 //* moveit
 #include <moveit_servo/servo.h>
@@ -237,6 +241,7 @@ class m2Iface: public rclcpp::Node
         void planAndExecPosePath();
         void addTimestempsToTrajectory(moveit_msgs::msg::RobotTrajectory &trajectory);
         bool planWithPlanner(geometry_msgs::msg::Pose goalPose, moveit_msgs::msg::RobotTrajectory &trajectory);
+        geometry_msgs::msg::PoseStamped transformPoseToFrame(geometry_msgs::msg::PoseStamped pose, std::string frame_id);
 
         // Simple state machine 
         enum state{
@@ -286,7 +291,8 @@ class m2Iface: public rclcpp::Node
         moveit::core::RobotModelPtr kinematic_model; 
         std::shared_ptr<planning_scene_monitor::PlanningSceneMonitor> m_pSceneMonitorPtr; 
         std::unique_ptr<moveit_servo::Servo> servoPtr; 
-
+        std::unique_ptr<tf2_ros::Buffer> tfBufferPtr;
+        std::shared_ptr<tf2_ros::TransformListener> transformListenerPtr{nullptr};
 }; 
 
 #endif
